@@ -17,17 +17,16 @@ This script was will run in any environment that can provide the following:
 
 ## Installation
 
-Create a dedicated user account for this program to use.  Do not use a
+1. Create a dedicated user account for this program to use.  Do not use a
 shared account, as the installation and removal process will clobber
 the user's crontab. (You may, of course, skip the `make install` step
 below and install the crontab yourself.)
 
-Become that user.
+1. Become that user.
 
-Unpack the sources into a subdirectory of the user's home directory
-(e.g., ~/github-backup).
+1. Clone this repository into a subdirectory of the user's home directory (`git clone https://github.com/markfeit/github-backup.git`).
 
-`make install`.  Note that this does not install any files outside the
+1. `make install`.  Note that this does not install any files outside the
 soure directory other than the crontab which runs it.
 
 
