@@ -1,0 +1,191 @@
+#!/bin/sh -e
+#
+# Mirror repositories from GitHub
+#
+
+WHOAMI=$(basename $0)
+WHEREAMI=$(dirname $0)
+TMPBASE="${TMP:-/tmp}/${WHOAMI}.$$"
+
+INITIAL_REPO_LIST="${WHEREAMI}/repos"
+REPO_LIST_CACHE="${INITIAL_REPO_LIST}.cache"
+
+GIT_API="https://api.github.com"
+
+
+# Be noisy if stdout is a tty.
+if [ -t 1 ]
+then
+    VERBOSE="echo"
+    QUIET="--quiet"
+else
+    VERBOSE="true"
+    QUIET="--quiet"
+fi
+
+
+cleanup()
+{
+    rm -rf ${TMPBASE}*
+}
+trap cleanup EXIT
+
+
+#
+# Read the authorization file if there is one
+#
+AUTH_FILE="${WHEREAMI}/auth"
+[ -r "${AUTH_FILE}" ] \
+    && USER_AUTH="-u $(cat "${AUTH_FILE}")"
+
+
+#
+# Build a list of the individual repositories to be backed up
+#
+
+REPO_LIST="${TMPBASE}.repos"
+    
+while read LINE
+do
+    # Strip and skip comments.  IFS will strip leading whitespace for us.
+    LINE=$(echo "${LINE}" | sed -e 's|#.*$||')
+    [ "${LINE}" ] || continue
+
+    case "${LINE}" in
+
+	https://github.com/*.git)
+	    echo "${LINE}"
+	    ;;
+	
+	https://github.com/*)
+	    REPO_USER=$(echo ${LINE} | awk -F/ '{ print $4 }')
+
+	    EXPANDED="${TMPBASE}.expanded"
+	    curl -s ${USER_AUTH} "${GIT_API}/users/${REPO_USER}/repos" \
+		 > "${EXPANDED}"
+
+	    MESSAGE=$(jq -r 'if type == "object" then .message // "" else "" end' "${EXPANDED}")
+
+	    if [ "${MESSAGE}" ]
+	    then
+		echo "${LINE}: ${MESSAGE}" 1>&2
+		exit 1
+	    fi
+
+	    jq -r '.[] | .clone_url' "${EXPANDED}"
+	    ;;
+	
+	*)
+	    echo "Don't know what to do with ${LINE}" 1>&2
+	    exit 1
+	    ;;
+    esac
+   
+done < "${INITIAL_REPO_LIST}" > "${REPO_LIST}"
+
+
+#
+# Archive all of the repos in the list
+#
+
+
+ARCHIVE="${WHEREAMI}/archive"
+mkdir -p "${ARCHIVE}"
+
+
+while read REPO_URL
+do
+
+    SUBTREE=$(echo "${REPO_URL}" | sed -e 's|^https://github.com/||; s|\.git$||')
+    NAME=$(basename "${SUBTREE}")
+    BACKUP="${ARCHIVE}/${SUBTREE}"
+    ${VERBOSE} "Backing up ${REPO_URL}"
+    mkdir -p "${BACKUP}"
+
+    # Main repository
+
+    if [ -d "${BACKUP}/${NAME}/.git" ]
+    then
+	${VERBOSE} "  Pulling repository"
+	    git -C "${BACKUP}/${NAME}" pull ${QUIET}
+    else
+	${VERBOSE} "  Cloning repository"
+	git -C "${BACKUP}" clone ${QUIET} "${REPO_URL}"
+    fi
+
+    # Wiki
+
+    if [ -d "${BACKUP}/${NAME}.wiki/.git" ]
+    then
+	${VERBOSE} "  Pulling wiki"
+	    git -C "${BACKUP}/${NAME}.wiki" pull ${QUIET}
+    else
+	${VERBOSE} "  Cloning wiki"
+	WIKI_URL=$(echo "${REPO_URL}" | sed -e 's|\.git$|.wiki.git|')
+	WIKI_OUT="${TMPBASE}.wiki"
+	if ! git -C "${BACKUP}" clone ${QUIET} "${WIKI_URL}" \
+	     > "${WIKI_OUT}" 2>&1
+	then
+	    if ! fgrep -q "access denied or repository not exported:" \
+		 "${WIKI_OUT}"
+	    then
+		cat "${WIKI_OUT}" 1>&2
+		exit 1
+	    else
+		${VERBOSE} "    Not present or not accessible."
+	    fi
+	fi
+    fi
+
+    # Downloadables
+
+    for ITEM in issues pulls forks issues/comments milestones labels \
+		       subscribers stargazers
+    do
+	ITEM_CLEAN=$(echo "${ITEM}" | tr / -)
+	${VERBOSE} "  Fetching ${ITEM}"
+	curl -q -s ${USER_AUTH} -o "${BACKUP}/${ITEM_CLEAN}.json" \
+	     "${GIT_API}/repos/${SUBTREE}/${ITEM}"
+    done
+
+done < "${REPO_LIST}"
+
+
+#
+# Wipe out any archived repositories no longer on the repo list
+#
+
+ARCHIVE_LIST="${TMPBASE}.archived"
+( cd "${ARCHIVE}" && find . -type d ) \
+    | awk -F/ '$3 { printf "%s/%s\n", $2, $3 }' \
+    | sort \
+    | uniq \
+	  > "${ARCHIVE_LIST}"
+
+REPO_LIST_SHORT="${TMPBASE}.repo-short"
+awk -F/ '$3 { printf "%s/%s\n", $4, $5 }' "${REPO_LIST}" \
+    | sed -e 's|\.git$||' \
+    > "${REPO_LIST_SHORT}"
+
+REMOVE_LIST="${TMPBASE}.remove"
+fgrep -vxf "${REPO_LIST_SHORT}" "${ARCHIVE_LIST}" > "${REMOVE_LIST}"
+
+if [ -s "${REMOVE_LIST}" ]
+then
+    ${VERBOSE} "Cleaning archive"
+    while read REMOVE
+    do
+	${VERBOSE} "  ${REMOVE}"
+	rm -rf "${ARCHIVE}/${REMOVE}"
+	USERDIR="$(dirname "${ARCHIVE}/${REMOVE}")"
+	[ $(ls -a "${USERDIR}" | wc -l) -eq 2 ] \
+	    && rmdir "${USERDIR}"
+    done < "${REMOVE_LIST}"
+fi
+
+
+#
+# Get out of Dodge
+#
+
+exit 0

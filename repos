@@ -1,0 +1,18 @@
+#
+# List of GitHub repositories and users to be backed up
+#
+# Lines that look like GitHub HTTPS repositories (e.g.,
+# https://github.com/octocat/Hello-World.git) will be backed up
+# individually.
+#
+# Lines that look like GitHub user URLs (https://github.com/octocat)
+# will be expanded into a list of that user's public repositories.
+#
+#
+# NOTE: Removing repositories from this file will result in those
+# repositories being removed from the archive next time the program is
+# run.
+#
+
+# Example
+https://github.com/octocat/Hello-World.git
