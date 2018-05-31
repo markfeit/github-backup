@@ -143,9 +143,19 @@ do
 		       subscribers stargazers
     do
 	ITEM_CLEAN=$(echo "${ITEM}" | tr / -)
+	FETCH="${TMPBASE}.fetch"
+	FILE="${BACKUP}/${ITEM_CLEAN}.json"
 	${VERBOSE} "  Fetching ${ITEM}"
-	curl -q -s ${USER_AUTH} -o "${BACKUP}/${ITEM_CLEAN}.json" \
+	curl -q -s ${USER_AUTH} -o "${FETCH}" \
 	     "${GIT_API}/repos/${SUBTREE}/${ITEM}"
+
+	# If the file doesn't exist or has changed, move it into place.
+
+	if [ ! -e "${FILE}" ] || ! diff "${FETCH}" "${FILE}" > /dev/null 2>&1
+	then
+	    ${VERBOSE} "    New or changed."
+	    mv -f "${FETCH}" "${FILE}"
+	fi
     done
 
 done < "${REPO_LIST}"
