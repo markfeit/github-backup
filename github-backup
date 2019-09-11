@@ -61,7 +61,7 @@ do
 	    REPO_USER=$(echo ${LINE} | awk -F/ '{ print $4 }')
 
 	    EXPANDED="${TMPBASE}.expanded"
-	    curl -s ${USER_AUTH} "${GIT_API}/users/${REPO_USER}/repos" \
+	    curl -s ${USER_AUTH} "${GIT_API}/users/${REPO_USER}/repos?per_page=100000" \
 		 > "${EXPANDED}"
 
 	    MESSAGE=$(jq -r 'if type == "object" then .message // "" else "" end' "${EXPANDED}")
